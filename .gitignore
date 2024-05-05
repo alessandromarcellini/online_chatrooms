@@ -1,0 +1,6 @@
+venv
+.idea
+ideas.txt
+.env
+__pycache__
+model/__pycache__
