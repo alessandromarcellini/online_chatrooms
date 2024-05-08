@@ -23,7 +23,7 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     messages: list#[Message]
     addr: tuple
 
-    def __init__(self, id, name, host: str, port: int, active_users=set()):
+    def __init__(self, id, name, host: str, port: int, active_users=dict()):
         self.id = id
         self._load_from_db() #id, messages and subscribed_users
         self.name = name #should be retreived from db
@@ -68,8 +68,11 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
         #self.socket.close()
 
     def _client_handler(self, client_socket, addr):
-        # TODO: add the user to the self.active_users => protocol to send the user information when connecting
-        print(f"[{self.name.upper()}] [CONNECTED] {addr[0]}:{addr[1]} has connected!")
+        #retrieve user infos
+        user_info = self._retrieve_user_info(client_socket)
+        self.active_users[user_info] = client_socket #TODO: figure out if a dict is really needed, probably not, (should use a set) but for now we'll stick with this
+        print(f"[{self.name.upper()}] [CONNECTED] {user_info.nickname} has connected!")
+        print(self.active_users)
 
         while True:
             # wait for client to send msg
@@ -78,12 +81,24 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
             msg = pickle.loads(message_received)
             if msg.msg == DISCONNECT_MESSAGE:
                 break
+            elif msg.msg == "user_info":
+                print("si")
             self._send_to_all_clients_connected(message_received)
             print(f"[{self.name.upper()}] [{addr}] <<< HEAD {msg_length}>>  {msg.msg}")
             #TODO: save the new message in the db and send it in real time to the connected users (self._send_to_client())
         client_socket.close()
-        #TODO: rm the user from the self.active_users
+        del self.active_users[user_info]
+        print(self.active_users)
         print(f"[{self.name.upper()}] {addr} disconnected :(")
+
+    def _retrieve_user_info(self, client_socket):
+        msg_length = self._receive_msg_length(client_socket)
+        message_received = client_socket.recv(msg_length)
+        msg = pickle.loads(message_received)
+        if msg.msg != "user_info":
+            raise Exception("Bad connecting protocol.")
+        return msg.obj
+
 
     def _send_to_all_clients_connected(self, msg: Message):
         # TODO: when receiving a message on the chatroom send it to all the users except the one that sent it

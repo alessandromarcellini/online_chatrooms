@@ -6,6 +6,7 @@ from dotenv import dotenv_values
 config = dotenv_values(".env")
 
 ENCODING_FORMAT = config["ENCODING_FORMAT"]
+HEADER_LENGTH = int(config["HEADER_LENGTH"])
 
 class AdministrationMessage:    #Messages sent from the server to the users to make them connect to chatrooms and stuff like that
     sender_id: int
@@ -22,6 +23,12 @@ class AdministrationMessage:    #Messages sent from the server to the users to m
 
     def send(self, socket: socket.socket):
         pickled_msg = pickle.dumps(self)
-        pickle_length = str(len(pickled_msg)).encode(ENCODING_FORMAT)
-        socket.send(pickle_length)
+        self._send_msg_length(socket, pickled_msg)
         socket.send(pickled_msg)
+
+    def _send_msg_length(self, socket: socket.socket, msg):
+        """Adding padding to match the header length"""
+        pickle_length = str(len(msg)).encode(ENCODING_FORMAT)
+        #add padding
+        pickle_length += b' ' * (HEADER_LENGTH - len(pickle_length))
+        socket.send(pickle_length)
