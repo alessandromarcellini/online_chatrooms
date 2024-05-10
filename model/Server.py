@@ -2,13 +2,15 @@ import socket
 import pickle
 import threading
 import argparse
+from itertools import chain
+
 from dotenv import dotenv_values
 
 from .Message import Message
 from .ChatRoomDetails import ChatRoomDetails
 from .AdministrationMessage import AdministrationMessage
 from .ChatRoom import ChatRoom
-
+from .UserDetails import UserDetails
 
 config = dotenv_values(".env")
 
@@ -23,8 +25,11 @@ class Server:
     socket: socket.socket #socket to handle requests to the server like creating chatrooms, deleting them, opening them or
     parser: argparse.ArgumentParser
 
+    details: UserDetails
+
     def __init__(self, port: int):
         print("[STARTING] Server is starting")
+        self.details = UserDetails(0, "server")
         self._set_parser()
         self._load_from_db()
         self.chat_rooms_created = set()
@@ -106,34 +111,49 @@ class Server:
             args = self.parser.parse_args(command.split())
             if args.command == "create_chatroom":
                 #create the chatroom
-                chatroom = self._create_and_return_chat_room(args, client_socket)
+                chatroom = self._create_and_return_chat_room(args)
 
                 # start the chatroom on a new thread
                 chatroom_thread = threading.Thread(target=self._run_chatroom, args=[chatroom])
                 chatroom_thread.start()
 
                 #send the success message
-                confirm_message = Message(0, 0, -2, "[SERVER] ChatRoom created successfully!")
+                confirm_message = Message(-2, 0, self.details, "[SERVER] ChatRoom created successfully!")
                 confirm_message.send(client_socket)
 
                 #send the message to make the user connect to the chatroom
                 chatroom_details = ChatRoomDetails(chatroom.id, chatroom.name, chatroom.subscribed_users,
-                                                     chatroom.active_users, chatroom.addr, chatroom.messages)
+                                                   chatroom.addr, chatroom.messages, chatroom.active_users)
                 response = AdministrationMessage("connect_to_chatroom", chatroom_details)
                 response.send(client_socket)
 
             elif args.command == "delete_chatroom":
                 self._delete_chat_room()
                 #MAKE THE USER DISCONNECT
+            elif args.command == "open_chatroom":
+                chatroom_details = self._get_chatroom_by_id(int(args.id))
+                if not chatroom_details: #TODO: Handle it
+                    raise Exception("Bad ChatRoom id")
+
+                response = AdministrationMessage("connect_to_chatroom", chatroom_details)
+                response.send(client_socket)
+
         except Exception as e:
             print(e)
-            response = Message(1, 0, -2, f"'{command}' is not a command. You can only send commands to the main server!")
+            response = Message(-2, 0, self.details, f"'{command}' is not a command. You can only send commands to the main server!")
             response.send(client_socket)
 
-    def _create_and_return_chat_room(self, args, client_socket):
+    def _get_chatroom_by_id(self, id: int):
+        for chatroom in self.chat_rooms_created:
+            if chatroom.id == id:
+                return chatroom
+        return None
+
+    def _create_and_return_chat_room(self, args):
         to_create = ChatRoom(1, args.name, args.host, int(args.port))   #TODO: MAKE IT AUTOMATIC HAVING PORTS_AVAILABLE_LIST AND THE ID
-        self.chat_rooms_created.add(to_create)
-        self.chat_rooms_active.add(to_create)
+        to_add = ChatRoomDetails(1, args.name, None, (args.host, int(args.port)))
+        self.chat_rooms_created.add(to_add)
+        self.chat_rooms_active.add(to_add)
         return to_create
 
     def _run_chatroom(self, chatroom):

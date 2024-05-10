@@ -3,7 +3,7 @@ class UserDetails:
     nickname: str
     subscribed_chats: set #list of ChatRoom (Details) which the user is subscribed to
 
-    def __init__(self, id, nickname, subscribed_chats):
+    def __init__(self, id, nickname, subscribed_chats=set()):
         self.id = id
         self.nickname = nickname
         self.subscribed_chats = subscribed_chats

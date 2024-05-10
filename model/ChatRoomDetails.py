@@ -9,7 +9,7 @@ class ChatRoomDetails: #TODO: can make the ChatRoom extend from this one
     messages: list#[Message]
     addr: tuple
 
-    def __init__(self, id, name, subscribed_users, active_users, addr, messages=[]):
+    def __init__(self, id, name, subscribed_users, addr, messages=[], active_users=set()):
         self.id = id
         self.name = name
         self.subscribed_users = subscribed_users

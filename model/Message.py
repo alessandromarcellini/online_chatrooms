@@ -9,7 +9,7 @@ ENCODING_FORMAT = config["ENCODING_FORMAT"]
 HEADER_LENGTH = int(config["HEADER_LENGTH"])
 
 class Message:
-    #sender_id: User.id
+    #sender: UserDetails
     id: int
     chat_id: int
     msg: str
@@ -19,10 +19,10 @@ class Message:
     #img: Image => can be None          TO ADD
 
 
-    def __init__(self, id, chat_id, sender_id, msg: str, tags=[], responding_to=None):
+    def __init__(self, id, chat_id, sender, msg: str, tags=[], responding_to=None):
         self.id = id
         self.chat_id = chat_id
-        self.sender_id = sender_id #server_id = -1 => if it is -1 in user check for commands from server. If it is -2 it is a normal message from server
+        self.sender = sender #server_id = -1 => if it is -1 in user check for commands from server. If it is -2 it is a normal message from server
         self.msg = msg
         self.tags = tags
         self.responding_to = responding_to

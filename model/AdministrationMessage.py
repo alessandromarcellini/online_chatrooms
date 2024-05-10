@@ -9,13 +9,13 @@ ENCODING_FORMAT = config["ENCODING_FORMAT"]
 HEADER_LENGTH = int(config["HEADER_LENGTH"])
 
 class AdministrationMessage:    #Messages sent from the server to the users to make them connect to chatrooms and stuff like that
-    sender_id: int
+    id: int #the type of administration message
     msg: str
     datetime: datetime.datetime
     obj: object
 
     def __init__(self, msg: str, obj: object):
-        self.sender_id = -1
+        self.id = -1
         self.msg = msg
         self.datetime = datetime.datetime.now()
         self.obj = obj

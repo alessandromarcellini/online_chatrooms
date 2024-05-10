@@ -70,9 +70,8 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     def _client_handler(self, client_socket, addr):
         #retrieve user infos
         user_info = self._retrieve_user_info(client_socket)
-        self.active_users[user_info] = client_socket #TODO: figure out if a dict is really needed, probably not, (should use a set) but for now we'll stick with this
+        self.active_users[user_info] = client_socket
         print(f"[{self.name.upper()}] [CONNECTED] {user_info.nickname} has connected!")
-        print(self.active_users)
 
         while True:
             # wait for client to send msg
@@ -81,14 +80,11 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
             msg = pickle.loads(message_received)
             if msg.msg == DISCONNECT_MESSAGE:
                 break
-            elif msg.msg == "user_info":
-                print("si")
-            self._send_to_all_clients_connected(message_received)
+            self._send_to_all_clients_connected(user_info, msg)
             print(f"[{self.name.upper()}] [{addr}] <<< HEAD {msg_length}>>  {msg.msg}")
             #TODO: save the new message in the db and send it in real time to the connected users (self._send_to_client())
         client_socket.close()
         del self.active_users[user_info]
-        print(self.active_users)
         print(f"[{self.name.upper()}] {addr} disconnected :(")
 
     def _retrieve_user_info(self, client_socket):
@@ -100,9 +96,14 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
         return msg.obj
 
 
-    def _send_to_all_clients_connected(self, msg: Message):
-        # TODO: when receiving a message on the chatroom send it to all the users except the one that sent it
-        pass
+    def _send_to_all_clients_connected(self, user_info, msg: Message): #TODO test it
+        """when receiving a message on the chatroom sends it to all the users except the one that sent it in the first place"""
+        for user in self.active_users:
+            if user != user_info:
+                user_socket = self.active_users[user]
+                msg.send(user_socket)
+
+
 
     def _receive_msg_length(self, client_socket):
         msg_length = int(client_socket.recv(HEADER_LENGTH).decode(ENCODING_FORMAT))

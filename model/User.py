@@ -25,15 +25,18 @@ class User: #Client
     subscribed_chats: set #list of ChatRoom (Details) which the user is subscribed to
     socket: socket.socket
 
+    details: UserDetails
+
 
     def __init__(self, id, nickname, password):
         self.id = id #should be loaded from db
         self._login(nickname, password)
         self.nickname = nickname
+        self.details = UserDetails(id, nickname)
         self._load_from_db() #=> load id and subscribed_chats from db
         self.subscribed_chats = set() #SHOULD BE LOADED FROM DB
         #starting out the only open chat will be the server's one
-        server = ChatRoomDetails(SERVER_CHAT_ROOM_ID, "SERVER", None, None, (SERVER_HOST, SERVER_PORT), None)
+        server = ChatRoomDetails(SERVER_CHAT_ROOM_ID, "SERVER", None, (SERVER_HOST, SERVER_PORT), None, None)
         self.subscribed_chats.add(server)
         self._connect_to_server(server)
         listening_thread = threading.Thread(target=self._listen)
@@ -47,9 +50,11 @@ class User: #Client
             #receive the msg
             msg_pickled = self.socket.recv(msg_length)
             msg = pickle.loads(msg_pickled)
-            if msg.sender_id == -1:
+            if msg.id == -1:
                 self._check_for_commands_from_server(msg)
-            print(f"<<<< HEAD {msg_length} >> {msg.msg}")
+                print(f"[ADMINISTRATION] <<<< HEAD {msg_length} >> {msg.msg}")
+            else:
+                print(f"[{msg.sender.nickname}] <<<< HEAD {msg_length} >> {msg.msg}")
 
     def _check_for_commands_from_server(self, command: AdministrationMessage):
         if command.msg == "connect_to_chatroom":
@@ -70,7 +75,7 @@ class User: #Client
 
         print(f"connecting to {chatroom.name}...")
         if self.socket:
-            disconnect_message = Message(1, self.open_chat.id, self.id, DISCONNECT_MESSAGE)
+            disconnect_message = Message(1, self.open_chat.id, self.details, DISCONNECT_MESSAGE)
             disconnect_message.send(self.socket)
             self.socket.close()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -125,6 +130,6 @@ class User: #Client
     def create_chat_room(self, host, port):
         #Message format:, id, chat_id=None, sender, msg=command
         #create_chat_room id host port
-        command = Message(1, SERVER_CHAT_ROOM_ID, self.id, f"create_chat_room {host} {port}")
+        command = Message(1, SERVER_CHAT_ROOM_ID, self.details, f"create_chat_room {host} {port}")
         self.send_msg(command)
 

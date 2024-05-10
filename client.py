@@ -16,11 +16,14 @@ HEADER_LENGTH = 64
 DISCONNECT_MESSAGE = "DO_NOT_TYPE_THIS"
 
 def main():
-    client = User(1, "parcel", "prova")
+    nickname = input("Enter your nickname: ")
+    pwd = input("Enter your password: ")
+
+    client = User(1, nickname, pwd)
     i = 0
     while True:
         msg = input("New message: ")
-        msg_to_send = Message(i, client.open_chat.id, client.id, msg)
+        msg_to_send = Message(i, client.open_chat.id, client.details, msg)
         client.send_msg(msg_to_send)
         i += 1
     client.socket.close()
