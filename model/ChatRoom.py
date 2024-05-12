@@ -23,13 +23,16 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     messages: list#[Message]
     addr: tuple
 
-    def __init__(self, id, name, host: str, port: int, active_users=dict()):
+    def __init__(self, id, name, host: str, active_users=dict()):
         self.id = id
         self._load_from_db() #id, messages and subscribed_users
         self.name = name #should be retreived from db
         self.active_users = active_users
         self.subscribed_users = set()
-        self.addr = (host, port)
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.bind((host, 0))
+        self.addr = (host, self.socket.getsockname()[1])
+        print(f"PORT: {self.addr}")
         self.messages = []
         print(f"[CREATED] {self.name.capitalize()} has been created successfully on addr: {self.addr}")
 
@@ -52,8 +55,6 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
             self.subscribed_users.remove(user)
 
     def start(self):    #SHOULD GO ON UNTIL SERVER SENDS TERMINATE MESSAGE OR ACTIVE USERS DROP TO ZERO
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.bind(self.addr)
         #start listening and creating threads for every client connecting
         print(f"[{self.name.upper()}] [LISTENING] {self.name} is listening.")
         self.socket.listen()

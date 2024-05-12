@@ -81,6 +81,7 @@ class User: #Client
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         self.open_chat = chatroom
+        print(f"ADDR: {self.open_chat.addr}")
         self.socket.connect(self.open_chat.addr) #TODO: add error handling
         self.subscribed_chats.add(self.open_chat)
 

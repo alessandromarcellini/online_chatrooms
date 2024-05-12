@@ -17,6 +17,7 @@ config = dotenv_values(".env")
 ENCODING_FORMAT = config["ENCODING_FORMAT"]
 HEADER_LENGTH = int(config["HEADER_LENGTH"])
 DISCONNECT_MESSAGE = config["DISCONNECT_MESSAGE"]
+SERVER_HOST = config["SERVER_HOST"]
 
 class Server:
     addr: tuple
@@ -24,6 +25,7 @@ class Server:
     chat_rooms_active: set #they're active if at least one user is connected
     socket: socket.socket #socket to handle requests to the server like creating chatrooms, deleting them, opening them or
     parser: argparse.ArgumentParser
+    greatest_chatroom_id: int   #WON'T NEED THIS ONCE WE HAVE A DB
 
     details: UserDetails
 
@@ -32,10 +34,11 @@ class Server:
         self.details = UserDetails(0, "server")
         self._set_parser()
         self._load_from_db()
+        self.greatest_chatroom_id = 0
         self.chat_rooms_created = set()
         self.chat_rooms_active = set()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.addr = (socket.gethostbyname(socket.gethostname()), port)
+        self.addr = (SERVER_HOST, port) #socket.gethostbyname(socket.gethostname())
         self.socket.bind(self.addr)
         print(f"[READY] Server is ready at port: {self.addr}")
 
@@ -46,8 +49,6 @@ class Server:
 
         #subparser for create_chatroom
         argsp = argsubparsers.add_parser("create_chatroom", help="create chatroom")
-        argsp.add_argument("host", help="The ChatRoom host.")
-        argsp.add_argument("port", help="The ChatRoom port.")
         #id needs to be auto computed
         argsp.add_argument("name", help="The ChatRoom name.")
 
@@ -118,7 +119,7 @@ class Server:
                 chatroom_thread.start()
 
                 #send the success message
-                confirm_message = Message(-2, 0, self.details, "[SERVER] ChatRoom created successfully!")
+                confirm_message = Message(-2, 0, self.details, f"[SERVER] ChatRoom created successfully! ID: {chatroom.id}")
                 confirm_message.send(client_socket)
 
                 #send the message to make the user connect to the chatroom
@@ -132,6 +133,7 @@ class Server:
                 #MAKE THE USER DISCONNECT
             elif args.command == "open_chatroom":
                 chatroom_details = self._get_chatroom_by_id(int(args.id))
+                print(f"Chatroom to connect to: {chatroom_details.addr}")
                 if not chatroom_details: #TODO: Handle it
                     raise Exception("Bad ChatRoom id")
 
@@ -150,8 +152,9 @@ class Server:
         return None
 
     def _create_and_return_chat_room(self, args):
-        to_create = ChatRoom(1, args.name, args.host, int(args.port))   #TODO: MAKE IT AUTOMATIC HAVING PORTS_AVAILABLE_LIST AND THE ID
-        to_add = ChatRoomDetails(1, args.name, None, (args.host, int(args.port)))
+        self.greatest_chatroom_id += 1
+        to_create = ChatRoom(self.greatest_chatroom_id, args.name, self.addr[0])   #TODO: MAKE ID AUTOMATIC RETREIVING FROM THE DB THE GREATEST ID EXISTING AND ADDING 1 TO IT
+        to_add = ChatRoomDetails(1, args.name, None, to_create.addr)
         self.chat_rooms_created.add(to_add)
         self.chat_rooms_active.add(to_add)
         return to_create
