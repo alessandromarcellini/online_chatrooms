@@ -4,6 +4,10 @@ import pickle
 from dotenv import dotenv_values
 
 from .Message import Message
+from .UserDetails import UserDetails
+
+from pymongo import MongoClient
+from bson import ObjectId
 
 config = dotenv_values(".env")
 
@@ -13,9 +17,19 @@ DISCONNECT_MESSAGE = config["DISCONNECT_MESSAGE"]
 
 SERVER_CHAT_ROOM_ID = 0
 
+MONGODB_CONNECT = config["MONGODB_CONNECT"]
+
+
+
+client = MongoClient(MONGODB_CONNECT)
+
+mdb_db = client['chat_rooms']
+mdb_messages = mdb_db['message']
+mdb_users = mdb_db['user']
+
 class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     #creator: User
-    id: int
+    id: ObjectId
     name: str
     subscribed_users: set
     active_users: dict #dict user: sockets? #when user connects send the notification to all the users connected to make them see the new user
@@ -24,8 +38,9 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     addr: tuple
 
     def __init__(self, id, name, host: str, active_users=dict()):
+        self.messages = []
         self.id = id
-        self._load_from_db() #id, messages and subscribed_users
+        self._retreive_messages() #id, messages and subscribed_users
         self.name = name #should be retreived from db
         self.active_users = active_users
         self.subscribed_users = set()
@@ -34,14 +49,29 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
         self.addr = (host, self.socket.getsockname()[1])
         print(f"PORT: {self.addr}")
         self.messages = []
-        print(f"[CREATED] {self.name.capitalize()} has been created successfully on addr: {self.addr}")
+        print(f"[CREATED] {self.name.capitalize()} has been created successfully on addr: {self.addr}, ID: {str(self.id)}")
 
-    def _load_from_db(self):
-        pass
+    def _retreive_messages(self, sector=0, user_socket=None): #TODO: sector is used for lazy loading of messages, if sector==0 => we retreive the last 100
+                                                                                                   #if sector==1 => we retreive 100 messages before the last 100
+        chatroom_messages = mdb_messages.find({"chat_id": self.id}).sort('_id', -1).limit(100)
+        #appending to TODO: only if they're not loaded in the chatroom_messages (probably should have a greatest_sector field)
+        to_send = []
+        for msg in chatroom_messages:
+            sender_mdb = mdb_users.find({'_id': msg['sender_id']})[0]
+            sender = UserDetails(sender_mdb['_id'], sender_mdb['nickname'])
+            to_add = Message(msg['_id'], self.id, sender, msg['msg'], msg['tags'], msg['responding_to'])
+            to_send.append(to_add)
+            self.messages.append(to_add)
+        #sending to user
+        if user_socket:
+            to_send.reverse()
+            for msg in to_send:
+                msg.send(user_socket)
 
-    def add_active_user(self, user, client_socket):
+
+    def add_active_user(self, user, user_socket):
         if user not in self.active_users:
-            self.active_users[user] = client_socket
+            self.active_users[user] = user_socket
 
     def rm_active_user(self, user):
         if user in self.active_users:
@@ -68,25 +98,40 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
         #send signal to server communicating the closing
         #self.socket.close()
 
-    def _client_handler(self, client_socket, addr):
+    def _client_handler(self, user_socket, addr):
         #retrieve user infos
-        user_info = self._retrieve_user_info(client_socket)
-        self.active_users[user_info] = client_socket
+        user_info = self._retrieve_user_info(user_socket)
+        self.active_users[user_info] = user_socket
         print(f"[{self.name.upper()}] [CONNECTED] {user_info.nickname} has connected!")
-
+        self._retreive_messages(user_socket=user_socket)
         while True:
             # wait for client to send msg
-            msg_length = self._receive_msg_length(client_socket)
-            message_received = client_socket.recv(msg_length)
+            msg_length = self._receive_msg_length(user_socket)
+            message_received = user_socket.recv(msg_length)
             msg = pickle.loads(message_received)
             if msg.msg == DISCONNECT_MESSAGE:
                 break
+            #TODO: should check if it is an AdministrationMessage, if it is => don't save it
+            self._save_message_db(msg)
+
             self._send_to_all_clients_connected(user_info, msg)
-            print(f"[{self.name.upper()}] [{addr}] <<< HEAD {msg_length}>>  {msg.msg}")
-            #TODO: save the new message in the db and send it in real time to the connected users (self._send_to_client())
-        client_socket.close()
+            print(f"[{self.name.upper()}] [{user_info.nickname}] <<< HEAD {msg_length}>>  {msg.msg}")
+        user_socket.close()
         del self.active_users[user_info]
         print(f"[{self.name.upper()}] {addr} disconnected :(")
+
+    def _save_message_db(self, msg):
+        #saving the message
+        message = {
+            'chat_id': msg.chat_id,
+            'sender_id': msg.sender.id,
+            'msg': msg.msg,
+            'date_time': msg.date_time,
+            'responding_to': msg.responding_to,
+            'tags': msg.tags,
+        }
+        mdb_messages.insert_one(message)
+
 
     def _retrieve_user_info(self, client_socket):
         msg_length = self._receive_msg_length(client_socket)

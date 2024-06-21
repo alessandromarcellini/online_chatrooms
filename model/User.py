@@ -8,6 +8,8 @@ from .AdministrationMessage import AdministrationMessage
 from .Message import Message
 from .UserDetails import UserDetails
 
+from bson import ObjectId
+
 config = dotenv_values(".env")
 
 ENCODING_FORMAT = config["ENCODING_FORMAT"]
@@ -19,7 +21,7 @@ SERVER_PORT = int(config["SERVER_PORT"])
 
 
 class User: #Client
-    id: int #unique =>make it a str and get it from the nickname
+    id: ObjectId #unique =>make it a str and get it from the nickname
     nickname: str
     open_chat: ChatRoomDetails
     subscribed_chats: set #list of ChatRoom (Details) which the user is subscribed to
@@ -28,7 +30,7 @@ class User: #Client
     details: UserDetails
 
 
-    def __init__(self, id, nickname, password):
+    def __init__(self, id, nickname, password=None):
         self.id = id #should be loaded from db
         self._login(nickname, password)
         self.nickname = nickname
@@ -62,6 +64,7 @@ class User: #Client
             self.connect_to_chatroom(chatroom)
 
     def _connect_to_server(self, server):
+        print(f"connecting to server... {server.addr}")
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.open_chat = server
         self.socket.connect(self.open_chat.addr)
@@ -81,6 +84,7 @@ class User: #Client
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         self.open_chat = chatroom
+
         print(f"ADDR: {self.open_chat.addr}")
         self.socket.connect(self.open_chat.addr) #TODO: add error handling
         self.subscribed_chats.add(self.open_chat)

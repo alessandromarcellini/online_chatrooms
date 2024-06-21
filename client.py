@@ -3,6 +3,10 @@ from dotenv import dotenv_values
 from model.User import User
 from model.Message import Message
 
+from pymongo import MongoClient
+from bson import ObjectId
+
+
 config = dotenv_values(".env")
 
 SERVER_HOST = config["SERVER_HOST"]
@@ -14,12 +18,26 @@ ADDR = (SERVER_HOST, SERVER_PORT)
 ENCODING_FORMAT = 'utf-8'
 HEADER_LENGTH = 64
 DISCONNECT_MESSAGE = "DO_NOT_TYPE_THIS"
+MONGODB_CONNECT = config["MONGODB_CONNECT"]
+
+
+client = MongoClient(MONGODB_CONNECT)
+mdb_db = client['chat_rooms']
+mdb_users = mdb_db['user']
+
+
 
 def main():
     nickname = input("Enter your nickname: ")
     pwd = input("Enter your password: ")
 
-    client = User(1, nickname, pwd)
+    id = ObjectId()
+
+    client = User(id, nickname, pwd)
+
+    temporary_save_client(client)
+
+
     i = 0
     while True:
         msg = input("New message: ")
@@ -28,6 +46,15 @@ def main():
         i += 1
     client.socket.close()
 
+
+def temporary_save_client(client):
+    user = {
+        '_id': client.id,
+        'nickname': client.nickname,
+        'subscribed_chats': []
+    }
+
+    mdb_users.insert_one(user)
 
 
 if __name__ == "__main__":
