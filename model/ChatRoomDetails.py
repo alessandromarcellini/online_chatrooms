@@ -12,7 +12,7 @@ class ChatRoomDetails: #TODO: can make the ChatRoom extend from this one
     addr: tuple
     is_active: bool
 
-    def __init__(self, id, name, subscribed_users, addr, messages=[], active_users=set(), is_active=True):
+    def __init__(self, id, name, subscribed_users, addr=None, messages=[], active_users=set(), is_active=True):
         self.id = id
         self.name = name
         self.subscribed_users = subscribed_users

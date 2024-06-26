@@ -35,7 +35,7 @@ mdb_messages = mdb_db['message']
 class Server:
     addr: tuple
     chat_rooms_created: set
-    chat_rooms_active: set #they're active if at least one user is connected
+    active_chat_rooms: set #they're active if at least one user is connected
     socket: socket.socket #socket to handle requests to the server like creating chatrooms, deleting them, opening them or
     parser: argparse.ArgumentParser
 
@@ -47,7 +47,7 @@ class Server:
         self.details = UserDetails(0, "server")
         self._set_parser()
         self.chat_rooms_created = set()
-        self.chat_rooms_active = set()
+        self.active_chat_rooms = set()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.addr = (SERVER_HOST, port) #socket.gethostbyname(socket.gethostname())
         self.socket.bind(self.addr)
@@ -82,13 +82,10 @@ class Server:
         """loads the chatrooms from the db"""
         chatrooms = mdb_chatrooms.find()
         for cht in chatrooms:
-            to_start = ChatRoom(cht['_id'], cht['name'], self.addr[0])
-            to_add = ChatRoomDetails(cht['_id'], cht['name'], cht['subscribed_users'], to_start.addr)
-
+            to_add = ChatRoomDetails(cht['_id'], cht['name'], cht['subscribed_users'])#, to_start.addr)
             self.chat_rooms_created.add(to_add)
-            self.chat_rooms_active.add(to_add)
-            chatroom_thread = threading.Thread(target=self._run_chatroom, args=[to_start])
-            chatroom_thread.start()
+            self.active_chat_rooms.add(to_add)
+            print(f"Added: {to_add.id}")
 
     def start(self):
     #start listening and creating threads for every client connecting
@@ -136,20 +133,28 @@ class Server:
                 self._delete_chat_room()
                 #MAKE THE USER DISCONNECT
             elif args.command == "open_chatroom":
-                chatroom_details = self._get_chatroom_by_id(ObjectId(args.id)) #TODO: if chatroom is suspended (no one was in it for 3 minutes [STILL TO ADD]) activate it in _get_chatroom_by_id
-                if not chatroom_details:
-                    raise Exception(f"Chatroom {args.id} doesn't exist")
-                print(f"Chatroom to connect to: {chatroom_details.addr}")
-                if not chatroom_details: #TODO: Handle it
-                    raise Exception("Bad ChatRoom id")
-
-                response = AdministrationMessage("connect_to_chatroom", chatroom_details)
-                response.send(client_socket)
+                self._open_chatroom(args, client_socket)
 
         except Exception as e:
             print(e)
             response = Message(-2, 0, self.details, f"'{command}' is not a command. You can only send commands to the main server!")
             response.send(client_socket)
+
+    def _open_chatroom(self, args, client_socket):
+        chatroom_details = self._get_chatroom_by_id(ObjectId(args.id))  # TODO: if chatroom is suspended (no one was in it for 3 minutes [STILL TO ADD]) activate it in _get_chatroom_by_id
+        if args.id not in self.active_chat_rooms: # if chatroom isn't active right now => open it
+            print("ACTIVATED CHATROOM:")
+            self.active_chat_rooms.add(chatroom_details.id)
+            print(self.active_chat_rooms)
+            to_start = ChatRoom(chatroom_details.id, chatroom_details.name, self.addr[0])
+            chatroom_details.addr = to_start.addr
+            chatroom_thread = threading.Thread(target=self._run_chatroom, args=[to_start])
+            chatroom_thread.start()
+
+        print(f"Chatroom to connect to: {chatroom_details.addr}")
+        response = AdministrationMessage("connect_to_chatroom", chatroom_details)
+        response.send(client_socket)
+
 
     def _create_chatroom(self, client_socket, args):
         # create the chatroom
@@ -175,7 +180,7 @@ class Server:
         for chatroom in self.chat_rooms_created:
             if chatroom.id == id:
                 return chatroom
-        return None
+        raise Exception(f"Chatroom {id} doesn't exist")
 
     def _create_and_return_chat_room(self, args):
 
@@ -193,7 +198,7 @@ class Server:
             'is_active': True,
         }
         self.chat_rooms_created.add(to_add)
-        self.chat_rooms_active.add(to_add)
+        self.active_chat_rooms.add(to_add)
         #adding the new chatroom to the db
         prova = mdb_chatrooms.insert_one(new_chatroom)
         print(f'ciao: {prova.inserted_id}')
