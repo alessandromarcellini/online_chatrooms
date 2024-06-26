@@ -33,6 +33,7 @@ Follow these steps to install and run the project on your machine:
     SERVER_CHAT_ROOM_ID = 0
     HEADER_LENGTH = 1024
     ENCODING_FORMAT = 'utf-8'
+    MONGODB_CONNECT = '<mongodb_connection_string>'
     ```
 
 ### Troubleshooting

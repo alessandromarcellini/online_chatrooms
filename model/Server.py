@@ -46,7 +46,6 @@ class Server:
         print("[STARTING] Server is starting")
         self.details = UserDetails(0, "server")
         self._set_parser()
-        self.greatest_chatroom_id = 0
         self.chat_rooms_created = set()
         self.chat_rooms_active = set()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -57,6 +56,7 @@ class Server:
 
     def _set_parser(self):
         self.parser = argparse.ArgumentParser(description="Server parser")
+
         argsubparsers = self.parser.add_subparsers(title="Commands", dest="command")
         argsubparsers.required = True
 

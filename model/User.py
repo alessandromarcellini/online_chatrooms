@@ -26,6 +26,7 @@ class User: #Client
     open_chat: ChatRoomDetails
     subscribed_chats: set #list of ChatRoom (Details) which the user is subscribed to
     socket: socket.socket
+    #TODO: add a "loaded_pages" field so that when disconnecting we can notify the chatroom that we don't nedd them anymore
 
     details: UserDetails
 

@@ -9,6 +9,8 @@ from .UserDetails import UserDetails
 from pymongo import MongoClient
 from bson import ObjectId
 
+MESSAGES_PAGE_SIZE = 3
+
 config = dotenv_values(".env")
 
 ENCODING_FORMAT = config["ENCODING_FORMAT"]
@@ -18,6 +20,10 @@ DISCONNECT_MESSAGE = config["DISCONNECT_MESSAGE"]
 SERVER_CHAT_ROOM_ID = 0
 
 MONGODB_CONNECT = config["MONGODB_CONNECT"]
+
+#commands:
+    #send_active_users
+    #send_subscribed_users
 
 
 
@@ -32,15 +38,18 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     id: ObjectId
     name: str
     subscribed_users: set
-    active_users: dict #dict user: sockets? #when user connects send the notification to all the users connected to make them see the new user
+    active_users: dict #TODO: when user connects send the notification to all the users connected to make them see the new user
     socket: socket.socket
-    messages: list#[Message]
     addr: tuple
+    messages: dict #key: page_number, value: list of messages
+    pages_loaded: dict #key: number of the page, value: number_of_users_using_it
+                    # #A page of messages is made of 100 messages, the dict has in it only the pages that at least one user is using
 
     def __init__(self, id, name, host: str, active_users=dict()):
-        self.messages = []
+        self.messages = {}
+        self.pages_loaded = {}
         self.id = id
-        self._retreive_messages() #id, messages and subscribed_users
+        #self._retreive_messages() #id, messages and subscribed_users
         self.name = name #should be retreived from db
         self.active_users = active_users
         self.subscribed_users = set()
@@ -48,23 +57,37 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
         self.socket.bind((host, 0))
         self.addr = (host, self.socket.getsockname()[1])
         print(f"PORT: {self.addr}")
-        self.messages = []
         print(f"[CREATED] {self.name.capitalize()} has been created successfully on addr: {self.addr}, ID: {str(self.id)}")
 
-    def _retreive_messages(self, sector=0, user_socket=None): #TODO: sector is used for lazy loading of messages, if sector==0 => we retreive the last 100
-                                                                                                   #if sector==1 => we retreive 100 messages before the last 100
-        chatroom_messages = mdb_messages.find({"chat_id": self.id}).sort('_id', -1).limit(100)
-        #appending to TODO: only if they're not loaded in the chatroom_messages (probably should have a greatest_sector field)
+    def _retreive_messages(self, user_socket=None, page_number=None):
+        """loads from the db the requested page of messages if not in the messages list already.
+        Sends the requested page of messages to the user requesting them.
+        Note: a page of messages is made of MESSAGES_PAGE_SIZE messages"""
+        number_of_msg_docs = mdb_messages.count_documents({'chat_id': self.id})
+        number_of_pages = number_of_msg_docs // MESSAGES_PAGE_SIZE
+        if not page_number:
+            page_number = number_of_pages #get the number of the next page
+
         to_send = []
-        for msg in chatroom_messages:
-            sender_mdb = mdb_users.find({'_id': msg['sender_id']})[0]
-            sender = UserDetails(sender_mdb['_id'], sender_mdb['nickname'])
-            to_add = Message(msg['_id'], self.id, sender, msg['msg'], msg['tags'], msg['responding_to'])
-            to_send.append(to_add)
-            self.messages.append(to_add)
-        #sending to user
+        skip_count = page_number * MESSAGES_PAGE_SIZE
+        if page_number not in self.messages:
+            #needs to be loaded from the db
+            self.messages[page_number] = []
+            messages = mdb_messages.find({'chat_id': self.id}).skip(skip_count).limit(MESSAGES_PAGE_SIZE)
+            for msg in messages:
+                #create the Message Object
+                sender_mdb = mdb_users.find({'_id': msg['sender_id']})[0]
+                sender = UserDetails(sender_mdb['_id'], sender_mdb['nickname'])
+                to_add = Message(msg['_id'], self.id, sender, msg['msg'], msg['tags'], msg['responding_to'])
+                to_send.append(to_add)
+                self.messages[page_number].append(to_add)
+            self.pages_loaded[page_number] = 1
+        else:
+            #get them directly from the self.messages
+            to_send = self.messages[page_number]
+            self.pages_loaded[page_number] += 1
+        #sending
         if user_socket:
-            to_send.reverse()
             for msg in to_send:
                 msg.send(user_socket)
 
@@ -109,16 +132,38 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
             msg_length = self._receive_msg_length(user_socket)
             message_received = user_socket.recv(msg_length)
             msg = pickle.loads(message_received)
+            self._check_for_commands(msg)
             if msg.msg == DISCONNECT_MESSAGE:
                 break
             #TODO: should check if it is an AdministrationMessage, if it is => don't save it
+            self._save_message_messages(msg)
             self._save_message_db(msg)
-
             self._send_to_all_clients_connected(user_info, msg)
             print(f"[{self.name.upper()}] [{user_info.nickname}] <<< HEAD {msg_length}>>  {msg.msg}")
         user_socket.close()
         del self.active_users[user_info]
         print(f"[{self.name.upper()}] {addr} disconnected :(")
+
+    def _check_for_commands(self, msg):
+        pass
+
+    def _save_message_messages(self, msg):
+        """
+        This function runs when a user sends a new message in the chatroom.
+        It will save that message in the self.messages dict with it's own page.
+        """
+        #get the page (greatest from db)
+        number_of_msg_docs = mdb_messages.count_documents({'chat_id': self.id})
+        page_number = number_of_msg_docs // MESSAGES_PAGE_SIZE
+
+        #if page is a new one => create it
+        if page_number not in self.messages: #if the message is of a new page => need to create the new page and load it for everyone connected
+            self.messages[page_number] = []
+            self.pages_loaded[page_number] = len(self.active_users)
+
+        #save the message in self.messages[page]
+        self.messages[page_number].append(msg)
+
 
     def _save_message_db(self, msg):
         #saving the message
