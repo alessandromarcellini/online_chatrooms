@@ -5,6 +5,7 @@ class ChatRoomDetails: #TODO: can make the ChatRoom extend from this one
      It is the one referenced in the User's open_chat and subscribed_chats"""
     #creator: User
     id: ObjectId
+    owner: ObjectId
     name: str
     subscribed_users: set
     active_users: set #User objects, no sockets
@@ -12,8 +13,9 @@ class ChatRoomDetails: #TODO: can make the ChatRoom extend from this one
     addr: tuple
     is_active: bool
 
-    def __init__(self, id, name, subscribed_users, addr=None, messages=[], active_users=set(), is_active=True):
+    def __init__(self, id, owner, name, subscribed_users, addr=None, messages=[], active_users=set(), is_active=True):
         self.id = id
+        self.owner = owner
         self.name = name
         self.subscribed_users = subscribed_users
         self.active_users = active_users

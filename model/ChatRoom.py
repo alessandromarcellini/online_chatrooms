@@ -9,7 +9,7 @@ from .UserDetails import UserDetails
 from pymongo import MongoClient
 from bson import ObjectId
 
-MESSAGES_PAGE_SIZE = 3
+MESSAGES_PAGE_SIZE = 100
 
 config = dotenv_values(".env")
 
@@ -36,6 +36,7 @@ mdb_users = mdb_db['user']
 class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     #creator: User
     id: ObjectId
+    owner: ObjectId
     name: str
     subscribed_users: set
     active_users: dict #TODO: when user connects send the notification to all the users connected to make them see the new user
@@ -45,10 +46,11 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     pages_loaded: dict #key: number of the page, value: number_of_users_using_it
                     # #A page of messages is made of 100 messages, the dict has in it only the pages that at least one user is using
 
-    def __init__(self, id, name, host: str, active_users=dict()):
+    def __init__(self, id, owner,name, host: str, active_users=dict()):
         self.messages = {}
         self.pages_loaded = {}
         self.id = id
+        self.owner = owner
         #self._retreive_messages() #id, messages and subscribed_users
         self.name = name #should be retreived from db
         self.active_users = active_users
@@ -76,6 +78,7 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
             messages = mdb_messages.find({'chat_id': self.id}).skip(skip_count).limit(MESSAGES_PAGE_SIZE)
             for msg in messages:
                 #create the Message Object
+                print(f"\n\n{msg}\n\n")
                 sender_mdb = mdb_users.find({'_id': msg['sender_id']})[0]
                 sender = UserDetails(sender_mdb['_id'], sender_mdb['nickname'])
                 to_add = Message(msg['_id'], self.id, sender, msg['msg'], msg['tags'], msg['responding_to'])
@@ -124,7 +127,7 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     def _client_handler(self, user_socket, addr):
         #retrieve user infos
         user_info = self._retrieve_user_info(user_socket)
-        self.active_users[user_info] = user_socket
+        self.add_active_user(user_info, user_socket)
         print(f"[{self.name.upper()}] [CONNECTED] {user_info.nickname} has connected!")
         self._retreive_messages(user_socket=user_socket)
         while True:
@@ -132,13 +135,14 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
             msg_length = self._receive_msg_length(user_socket)
             message_received = user_socket.recv(msg_length)
             msg = pickle.loads(message_received)
+            print(f"\n\nMSG_USER: {msg.sender.id}\n\n")
             self._check_for_commands(msg)
             if msg.msg == DISCONNECT_MESSAGE:
                 break
             #TODO: should check if it is an AdministrationMessage, if it is => don't save it
             self._save_message_messages(msg)
             self._save_message_db(msg)
-            self._send_to_all_clients_connected(user_info, msg)
+            self._send_to_all_clients_connected(msg, user_info)
             print(f"[{self.name.upper()}] [{user_info.nickname}] <<< HEAD {msg_length}>>  {msg.msg}")
         user_socket.close()
         del self.active_users[user_info]
@@ -187,12 +191,16 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
         return msg.obj
 
 
-    def _send_to_all_clients_connected(self, user_info, msg: Message): #TODO test it
+    def _send_to_all_clients_connected(self, msg, sender_info=None, include_sender=False): #TODO test it
         """when receiving a message on the chatroom sends it to all the users except the one that sent it in the first place"""
+        if not sender_info and include_sender:
+            raise Exception("If you want to include_sender need to pass the sender_info")
+
         for user in self.active_users:
-            if user != user_info:
+            if user != sender_info and not include_sender:
                 user_socket = self.active_users[user]
                 msg.send(user_socket)
+
 
 
 

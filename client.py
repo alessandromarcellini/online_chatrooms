@@ -2,6 +2,7 @@ from dotenv import dotenv_values
 
 from model.User import User
 from model.Message import Message
+from model.Auth import Auth
 
 from pymongo import MongoClient
 from bson import ObjectId
@@ -26,17 +27,9 @@ mdb_db = client['chat_rooms']
 mdb_users = mdb_db['user']
 
 
-
 def main():
-    nickname = input("Enter your nickname: ")
-    pwd = input("Enter your password: ")
-
     id = ObjectId()
-
-    client = User(id, nickname, pwd)
-
-    temporary_save_client(client)
-
+    client = User(id)
 
     i = 0
     while True:
@@ -46,15 +39,6 @@ def main():
         i += 1
     client.socket.close()
 
-
-def temporary_save_client(client):
-    user = {
-        '_id': client.id,
-        'nickname': client.nickname,
-        'subscribed_chats': []
-    }
-
-    mdb_users.insert_one(user)
 
 
 if __name__ == "__main__":

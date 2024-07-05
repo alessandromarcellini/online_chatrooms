@@ -7,8 +7,12 @@ from .ChatRoomDetails import ChatRoomDetails
 from .AdministrationMessage import AdministrationMessage
 from .Message import Message
 from .UserDetails import UserDetails
+from .Auth import Auth
 
+from pymongo import MongoClient
 from bson import ObjectId
+
+import getpass
 
 config = dotenv_values(".env")
 
@@ -18,7 +22,11 @@ DISCONNECT_MESSAGE = config["DISCONNECT_MESSAGE"]
 SERVER_CHAT_ROOM_ID = config["SERVER_CHAT_ROOM_ID"]
 SERVER_HOST = config["SERVER_HOST"]
 SERVER_PORT = int(config["SERVER_PORT"])
+MONGODB_CONNECT =  config["MONGODB_CONNECT"]
 
+client = MongoClient(MONGODB_CONNECT)
+mdb_db = client['chat_rooms']
+mdb_users = mdb_db['user']
 
 class User: #Client
     id: ObjectId #unique =>make it a str and get it from the nickname
@@ -31,19 +39,49 @@ class User: #Client
     details: UserDetails
 
 
-    def __init__(self, id, nickname, password=None):
+    def __init__(self, id, nickname=None, password=None):
         self.id = id #should be loaded from db
-        self._login(nickname, password)
         self.nickname = nickname
-        self.details = UserDetails(id, nickname)
-        self._load_from_db() #=> load id and subscribed_chats from db
-        self.subscribed_chats = set() #SHOULD BE LOADED FROM DB
+        self.password = password
+
+        if input("Login / Register (L/r): ") == 'r':
+            self.register()
+        else:
+            self.login()
+        #self._load_from_db() #=> load id and subscribed_chats from db
+        self.subscribed_chats = set() #TODO: SHOULD BE LOADED FROM DB
         #starting out the only open chat will be the server's one
-        server = ChatRoomDetails(SERVER_CHAT_ROOM_ID, "SERVER", None, (SERVER_HOST, SERVER_PORT), None, None)
+        server = ChatRoomDetails(SERVER_CHAT_ROOM_ID, None, "SERVER", None, (SERVER_HOST, SERVER_PORT), None, None)
         self.subscribed_chats.add(server)
         self._connect_to_server(server)
         listening_thread = threading.Thread(target=self._listen)
         listening_thread.start()
+
+    def login(self):
+        print("LOGIN INTERFACE:")
+
+        nickname = input("Nickname: ")
+        pwd = getpass.getpass(prompt="Password: ")
+        Auth.login(nickname, pwd)
+        self.nickname = nickname
+        self.password = pwd
+        self._load_from_db()
+        self.details = UserDetails(self.id, nickname)
+        print("Logged in Successfully!")
+
+    def register(self):
+        print("REGISTER INTERFACE:")
+
+        nickname = input("Nickname: ")
+        pwd = getpass.getpass(prompt="Password: ")
+        confirm_pwd = getpass.getpass(prompt="Confirm Password: ")
+        Auth.register(nickname, pwd, confirm_pwd)
+        self.nickname = nickname
+        self.password = pwd
+        self.details = UserDetails(self.id, nickname)
+        self.subscribed_chats = set()
+        print("Registered Successfully!")
+
 
     def _listen(self):
         print("I'm listening")
@@ -63,6 +101,11 @@ class User: #Client
         if command.msg == "connect_to_chatroom":
             chatroom = command.obj
             self.connect_to_chatroom(chatroom)
+        elif command.msg == "delete_chatroom":
+            chatroom = command.obj
+            self.subscribed_chats.discard(chatroom) #TODO: test it----------------------------------------------------------------
+            if self.open_chat == chatroom:
+                self.open_chat = None
 
     def _connect_to_server(self, server):
         print(f"connecting to server... {server.addr}")
@@ -100,11 +143,13 @@ class User: #Client
         msg = AdministrationMessage("user_info", infos)
         msg.send(self.socket)
 
-    def _login(self, nickname, password):
-        pass
-
-    def _load_from_db(self):
-        pass
+    def _load_from_db(self): #TODO: TO COMPLEATE
+        user = mdb_users.find_one({'nickname': self.nickname})
+        if not user:
+            raise Exception(f"No user named {self.nickname}.")
+        print(f"LOG_INUSER_ID {user['_id']}")
+        self.id = user['_id']
+        print(self.id)
 
     def send_msg(self, msg: Message):   #client.py will create the message and pass it to Client.send_msg
         #client.send_msg checks for chat_room availability and calls msg.send

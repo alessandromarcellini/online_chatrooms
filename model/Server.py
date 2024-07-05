@@ -65,13 +65,13 @@ class Server:
         #id needs to be auto computed
         argsp.add_argument("name", help="The ChatRoom name.")
 
-        #subparser for delete_chatroom
-        argsp = argsubparsers.add_parser("delete_chatroom")
-        argsp.add_argument("id", help="The ChatRoom id.")
-
         #subparser for open_chatroom
         argsp = argsubparsers.add_parser("open_chatroom", help="Open an existing chatroom")
         argsp.add_argument("id", help="The id of the ChatRoom to open.")
+
+        #subparser for delete_chatroom
+        argsp = argsubparsers.add_parser("delete_chatroom", help="Delete an existing chatroom")
+        argsp.add_argument("id", help="The id of the ChatRoom to delete.")
 
         #fake subparser for disconnect message
         argsp = argsubparsers.add_parser(DISCONNECT_MESSAGE)
@@ -82,7 +82,7 @@ class Server:
         """loads the chatrooms from the db"""
         chatrooms = mdb_chatrooms.find()
         for cht in chatrooms:
-            to_add = ChatRoomDetails(cht['_id'], cht['name'], cht['subscribed_users'])#, to_start.addr)
+            to_add = ChatRoomDetails(cht['_id'], cht['owner'], cht['name'], cht['subscribed_users'])#, to_start.addr)
             self.chat_rooms_created.add(to_add)
             self.active_chat_rooms.add(to_add)
             print(f"Added: {to_add.id}")
@@ -110,7 +110,7 @@ class Server:
             msg_length = self._receive_msg_length(client_socket)
             message_received = client_socket.recv(msg_length)
             msg = pickle.loads(message_received)
-            self._handle_command(msg.msg, client_socket)
+            self._handle_command(msg, client_socket)
             if msg.msg == DISCONNECT_MESSAGE:
                 break
 
@@ -124,29 +124,32 @@ class Server:
         return msg_length
 
     #PARSING COMMANDS--------------------------------------------------------------------------------------------------
-    def _handle_command(self, command, client_socket):
+    def _handle_command(self, msg, client_socket):
         try:
-            args = self.parser.parse_args(command.split())
+            args = self.parser.parse_args(msg.msg.split())
             if args.command == "create_chatroom":
-                self._create_chatroom(client_socket, args)
+                self._create_chatroom(client_socket, args, msg.sender.id)
             elif args.command == "delete_chatroom":
                 self._delete_chat_room()
                 #MAKE THE USER DISCONNECT
             elif args.command == "open_chatroom":
                 self._open_chatroom(args, client_socket)
+            elif args.command == "delete_chatroom":
+                sender_id = msg.sender.id
+                self._delete_chatroom(args, sender_id)
 
         except Exception as e:
             print(e)
-            response = Message(-2, 0, self.details, f"'{command}' is not a command. You can only send commands to the main server!")
+            response = Message(-2, 0, self.details, f"'{msg}' is not a command. You can only send commands to the main server!")
             response.send(client_socket)
 
     def _open_chatroom(self, args, client_socket):
-        chatroom_details = self._get_chatroom_by_id(ObjectId(args.id))  # TODO: if chatroom is suspended (no one was in it for 3 minutes [STILL TO ADD]) activate it in _get_chatroom_by_id
+        chatroom_details = self._get_chatroom_by_id(ObjectId(args.id))
         if args.id not in self.active_chat_rooms: # if chatroom isn't active right now => open it
             print("ACTIVATED CHATROOM:")
             self.active_chat_rooms.add(chatroom_details.id)
             print(self.active_chat_rooms)
-            to_start = ChatRoom(chatroom_details.id, chatroom_details.name, self.addr[0])
+            to_start = ChatRoom(chatroom_details.id, chatroom_details.owner, chatroom_details.name, self.addr[0])
             chatroom_details.addr = to_start.addr
             chatroom_thread = threading.Thread(target=self._run_chatroom, args=[to_start])
             chatroom_thread.start()
@@ -155,10 +158,34 @@ class Server:
         response = AdministrationMessage("connect_to_chatroom", chatroom_details)
         response.send(client_socket)
 
+    def _delete_chatroom(self, args, sender_id):
+        chatroom_details = self._get_chatroom_by_id(ObjectId(args.id))
+        if sender_id != chatroom_details.owner: #TODO: made it so that a chatroom can have multiple owners
+            raise Exception("You're not the owner of this chatroom.")
 
-    def _create_chatroom(self, client_socket, args):
+        self.active_chat_rooms.discard(chatroom_details)
+        self.chat_rooms_created.discard(chatroom_details)
+        mdb_chatrooms.delete_one({'_id': ObjectId(args.id)})
+
+        #send disconnect and delete message to all users
+        response = AdministrationMessage("delete_chatroom", chatroom_details)
+        self._send_to_all_clients_connected(response)
+
+
+    def _send_to_all_clients_connected(self, msg, sender_info=None, include_sender=False): #TODO test it
+        """when receiving a message on the chatroom sends it to all the users except the one that sent it in the first place"""
+        if not sender_info and include_sender:
+            raise Exception("If you want to include_sender need to pass the sender_info")
+
+        for user in self.active_users:
+            if user != sender_info and not include_sender:
+                user_socket = self.active_users[user]
+                msg.send(user_socket)
+
+
+    def _create_chatroom(self, client_socket, args, owner):
         # create the chatroom
-        chatroom = self._create_and_return_chat_room(args)
+        chatroom = self._create_and_return_chat_room(args, owner)
 
         # start the chatroom on a new thread
         chatroom_thread = threading.Thread(target=self._run_chatroom, args=[chatroom])
@@ -169,7 +196,7 @@ class Server:
         confirm_message.send(client_socket)
 
         # send the message to make the user connect to the chatroom
-        chatroom_details = ChatRoomDetails(chatroom.id, chatroom.name, chatroom.subscribed_users,
+        chatroom_details = ChatRoomDetails(chatroom.id, owner, chatroom.name, chatroom.subscribed_users,
                                            chatroom.addr, chatroom.messages, chatroom.active_users)
         response = AdministrationMessage("connect_to_chatroom", chatroom_details)
         response.send(client_socket)
@@ -182,26 +209,25 @@ class Server:
                 return chatroom
         raise Exception(f"Chatroom {id} doesn't exist")
 
-    def _create_and_return_chat_room(self, args):
-
+    def _create_and_return_chat_room(self, args, owner):
         #creating the chatroom
         chatroom_id = ObjectId()
 
-        to_create = ChatRoom(chatroom_id, args.name, self.addr[0])
-        to_add = ChatRoomDetails(chatroom_id, args.name, None, to_create.addr)
+        to_create = ChatRoom(chatroom_id, owner, args.name, self.addr[0])
+        to_add = ChatRoomDetails(chatroom_id, owner, args.name, None, to_create.addr)
 
         new_chatroom = {
             '_id': chatroom_id,
+            'owner': owner,
             'name': args.name,
             'subscribed_users': [], #TODO: should decide how to manage this filed, whether or not to set a limit of subscribed users
             'active_users': [],
             'is_active': True,
         }
-        self.chat_rooms_created.add(to_add)
-        self.active_chat_rooms.add(to_add)
+        self.chat_rooms_created.add(to_add.id)
+        self.active_chat_rooms.add(to_add.id)
         #adding the new chatroom to the db
         prova = mdb_chatrooms.insert_one(new_chatroom)
-        print(f'ciao: {prova.inserted_id}')
         return to_create
 
     def _run_chatroom(self, chatroom):
