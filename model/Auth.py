@@ -44,7 +44,6 @@ class Auth:
             raise Exception("User Already Exists")
 
         hashed = Auth.hash(pwd)
-        print(f"HASHED: {hashed}")
         user = {
             'nickname': nickname,
             'password': hashed,

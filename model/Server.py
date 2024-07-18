@@ -29,6 +29,7 @@ client = MongoClient(MONGODB_CONNECT)
 mdb_db = client['chat_rooms']
 mdb_chatrooms = mdb_db['chatroom']
 mdb_messages = mdb_db['message']
+mdb_users = mdb_db['user']
 
 
 
@@ -125,30 +126,31 @@ class Server:
 
     #PARSING COMMANDS--------------------------------------------------------------------------------------------------
     def _handle_command(self, msg, client_socket):
-        try:
-            args = self.parser.parse_args(msg.msg.split())
-            if args.command == "create_chatroom":
-                self._create_chatroom(client_socket, args, msg.sender.id)
-            elif args.command == "delete_chatroom":
-                self._delete_chat_room()
-                #MAKE THE USER DISCONNECT
-            elif args.command == "open_chatroom":
-                self._open_chatroom(args, client_socket)
-            elif args.command == "delete_chatroom":
-                sender_id = msg.sender.id
-                self._delete_chatroom(args, sender_id)
+        #try:
+        args = self.parser.parse_args(msg.msg.split())
+        if args.command == "create_chatroom":
+            self._create_chatroom(client_socket, args, msg.sender.id)
+        elif args.command == "delete_chatroom":
+            self._delete_chat_room()
+            #MAKE THE USER DISCONNECT
+        elif args.command == "open_chatroom":
+            self._open_chatroom(args, client_socket)
+        elif args.command == "delete_chatroom":
+            sender_id = msg.sender.id
+            self._delete_chatroom(args, sender_id)
 
-        except Exception as e:
-            print(e)
-            response = Message(-2, 0, self.details, f"'{msg}' is not a command. You can only send commands to the main server!")
-            response.send(client_socket)
+        # except Exception as e:
+        #     print(msg)
+        #     print(e)
+        #     response = Message(-2, 0, self.details, f"'{msg.msg}' is not a command. You can only send commands to the main server!")
+        #     response.send(client_socket)
 
     def _open_chatroom(self, args, client_socket):
         chatroom_details = self._get_chatroom_by_id(ObjectId(args.id))
         if args.id not in self.active_chat_rooms: # if chatroom isn't active right now => open it
-            print("ACTIVATED CHATROOM:")
+            print(f"ACTIVATED CHATROOM: {str(chatroom_details.name).upper()}")
             self.active_chat_rooms.add(chatroom_details.id)
-            print(self.active_chat_rooms)
+            #print(self.active_chat_rooms)
             to_start = ChatRoom(chatroom_details.id, chatroom_details.owner, chatroom_details.name, self.addr[0])
             chatroom_details.addr = to_start.addr
             chatroom_thread = threading.Thread(target=self._run_chatroom, args=[to_start])
@@ -195,7 +197,9 @@ class Server:
         confirm_message = Message(-2, 0, self.details, f"[SERVER] ChatRoom created successfully! ID: {chatroom.id}")
         confirm_message.send(client_socket)
 
-        # send the message to make the user connect to the chatroom
+
+
+        # send the message to make the user connect to the chatroom #TODO: Make a function to do this
         chatroom_details = ChatRoomDetails(chatroom.id, owner, chatroom.name, chatroom.subscribed_users,
                                            chatroom.addr, chatroom.messages, chatroom.active_users)
         response = AdministrationMessage("connect_to_chatroom", chatroom_details)
@@ -224,10 +228,17 @@ class Server:
             'active_users': [],
             'is_active': True,
         }
-        self.chat_rooms_created.add(to_add.id)
-        self.active_chat_rooms.add(to_add.id)
+
+        self.chat_rooms_created.add(to_add)
+        self.active_chat_rooms.add(to_add)
         #adding the new chatroom to the db
         prova = mdb_chatrooms.insert_one(new_chatroom)
+
+        result = mdb_users.update_one(
+            {'_id': owner},
+            {'$push': {'subscribed_chats': new_chatroom}}
+        )
+
         return to_create
 
     def _run_chatroom(self, chatroom):

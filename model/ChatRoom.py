@@ -2,9 +2,12 @@ import socket
 import threading
 import pickle
 from dotenv import dotenv_values
+import argparse
 
 from .Message import Message
 from .UserDetails import UserDetails
+from .ChatRoomDetails import ChatRoomDetails
+from model.AdministrationMessage import AdministrationMessage
 
 from pymongo import MongoClient
 from bson import ObjectId
@@ -24,6 +27,7 @@ MONGODB_CONNECT = config["MONGODB_CONNECT"]
 #commands:
     #send_active_users
     #send_subscribed_users
+    #send messages to user (to retrieve latest messages when opening chatroom)
 
 
 
@@ -42,6 +46,8 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     active_users: dict #TODO: when user connects send the notification to all the users connected to make them see the new user
     socket: socket.socket
     addr: tuple
+    details: ChatRoomDetails
+    parser: argparse.ArgumentParser
     messages: dict #key: page_number, value: list of messages
     pages_loaded: dict #key: number of the page, value: number_of_users_using_it
                     # #A page of messages is made of 100 messages, the dict has in it only the pages that at least one user is using
@@ -49,19 +55,36 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
     def __init__(self, id, owner,name, host: str, active_users=dict()):
         self.messages = {}
         self.pages_loaded = {}
+        self._set_parser()
         self.id = id
         self.owner = owner
-        #self._retreive_messages() #id, messages and subscribed_users
+        #self.retreive_messages() #id, messages and subscribed_users
         self.name = name #should be retreived from db
         self.active_users = active_users
         self.subscribed_users = set()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind((host, 0))
         self.addr = (host, self.socket.getsockname()[1])
+        self.details = ChatRoomDetails(self.id, self.owner, self.name, self.subscribed_users, self.addr)
         print(f"PORT: {self.addr}")
         print(f"[CREATED] {self.name.capitalize()} has been created successfully on addr: {self.addr}, ID: {str(self.id)}")
 
-    def _retreive_messages(self, user_socket=None, page_number=None):
+    def _set_parser(self):
+        self.parser = argparse.ArgumentParser(description="Chatroom parser")
+
+        argsubparsers = self.parser.add_subparsers(title="Commands", dest="command")
+        argsubparsers.required = True
+
+        #subparser for create_chatroom
+        argsp = argsubparsers.add_parser("retrieve_messages", help="create chatroom")
+        #id needs to be auto computed
+        argsp.add_argument("page", nargs="?", help="The messages Page number.")
+
+        #fake subparser for disconnect message
+        argsp = argsubparsers.add_parser(DISCONNECT_MESSAGE)
+
+
+    def retreive_messages(self, user_socket=None, page_number=None):
         """loads from the db the requested page of messages if not in the messages list already.
         Sends the requested page of messages to the user requesting them.
         Note: a page of messages is made of MESSAGES_PAGE_SIZE messages"""
@@ -78,7 +101,6 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
             messages = mdb_messages.find({'chat_id': self.id}).skip(skip_count).limit(MESSAGES_PAGE_SIZE)
             for msg in messages:
                 #create the Message Object
-                print(f"\n\n{msg}\n\n")
                 sender_mdb = mdb_users.find({'_id': msg['sender_id']})[0]
                 sender = UserDetails(sender_mdb['_id'], sender_mdb['nickname'])
                 to_add = Message(msg['_id'], self.id, sender, msg['msg'], msg['tags'], msg['responding_to'])
@@ -129,27 +151,40 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
         user_info = self._retrieve_user_info(user_socket)
         self.add_active_user(user_info, user_socket)
         print(f"[{self.name.upper()}] [CONNECTED] {user_info.nickname} has connected!")
-        self._retreive_messages(user_socket=user_socket)
+        self.retreive_messages(user_socket=user_socket)
         while True:
             # wait for client to send msg
             msg_length = self._receive_msg_length(user_socket)
             message_received = user_socket.recv(msg_length)
             msg = pickle.loads(message_received)
-            print(f"\n\nMSG_USER: {msg.sender.id}\n\n")
-            self._check_for_commands(msg)
+            if self.is_command(msg.msg):
+                self._handle_command(msg.msg, user_socket)
             if msg.msg == DISCONNECT_MESSAGE:
                 break
             #TODO: should check if it is an AdministrationMessage, if it is => don't save it
-            self._save_message_messages(msg)
-            self._save_message_db(msg)
-            self._send_to_all_clients_connected(msg, user_info)
+            if not self.is_command(msg.msg):
+                self._save_message_messages(msg)
+                self._save_message_db(msg)
+                self._send_to_all_clients_connected(msg, user_info, include_sender=True)
             print(f"[{self.name.upper()}] [{user_info.nickname}] <<< HEAD {msg_length}>>  {msg.msg}")
         user_socket.close()
         del self.active_users[user_info]
-        print(f"[{self.name.upper()}] {addr} disconnected :(")
+        print(f"[{self.name.upper()}] {user_info.nickname} disconnected :(")
 
-    def _check_for_commands(self, msg):
-        pass
+    def is_command(self, msg:str):
+        return msg.strip().startswith("retrieve_messages")
+
+    #PARSING COMMANDS--------------------------------------------------------------------------------------------------
+    def _handle_command(self, msg: str, client_socket):
+        try:
+            args = self.parser.parse_args(msg.split())
+            if args.command == "retrieve_messages":
+                self.retreive_messages(client_socket, int(args.page))
+
+        except Exception as e:
+            print(e)
+            response = Message(-2, 0, self.details, f"'{msg}' is not a command. You can only send commands to the main server!")
+            response.send(client_socket)
 
     def _save_message_messages(self, msg):
         """
@@ -197,12 +232,12 @@ class ChatRoom:     #HOW SHOULD I KNOW WHICH USER HAS CONNECTED? => PROTOCOL
             raise Exception("If you want to include_sender need to pass the sender_info")
 
         for user in self.active_users:
-            if user != sender_info and not include_sender:
+            if user != sender_info:
                 user_socket = self.active_users[user]
                 msg.send(user_socket)
-
-
-
+            elif include_sender:
+                user_socket = self.active_users[user]
+                msg.send(user_socket)
 
     def _receive_msg_length(self, client_socket):
         msg_length = int(client_socket.recv(HEADER_LENGTH).decode(ENCODING_FORMAT))
