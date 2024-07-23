@@ -20,16 +20,12 @@ ENCODING_FORMAT = config["ENCODING_FORMAT"]
 HEADER_LENGTH = int(config["HEADER_LENGTH"])
 DISCONNECT_MESSAGE = config["DISCONNECT_MESSAGE"]
 
-SERVER_CHAT_ROOM_ID = 0
-
 MONGODB_CONNECT = config["MONGODB_CONNECT"]
 
 #commands:
     #send_active_users
     #send_subscribed_users
     #send messages to user (to retrieve latest messages when opening chatroom)
-
-
 
 client = MongoClient(MONGODB_CONNECT)
 

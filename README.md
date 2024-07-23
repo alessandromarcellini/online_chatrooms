@@ -1,7 +1,7 @@
 # Online Chat-room Desktop App
 
 ## Overview
-A simple chat-room application written in Python allowing users on the same local network to chat with each other. Featuring MongoDB and a practical User Interface (coming soon).
+A simple chat-room application written in Python allowing users on the same local network to chat with each other. Featuring MongoDB, a practical GUI (coming soon) and alternatively a lighter TUI.
 
 
 Note: the project is still in the development stage.
@@ -10,7 +10,7 @@ This project serves as a practical application of my current studies and anticip
 
 ## Features
 
-- **server.py**: Handles the server-side logic (see the "Server" section).
+- **server.py**: Handles the server-side and Chatrooms logic (see the "Server" section).
 - **client.py**: Connects to chatrooms and enables communication with other users (clients).
 - **MongoDB**: A NoSQL database to store user data, chatrooms, and message details.
 
@@ -51,6 +51,17 @@ Server commands:
 * delete_chatroom <chatroom_id>
 * More coming...
 
+Chatroom commands:
+* retrieve_messages
+
+##TUI
+Commands:
+* `c-t` to focus the prompt section and write messages.
+* `c-c` to focus the chatroom pane and select a chatroom to connect to.
+* `Enter` to connect to a chatroom (while focusing the chatrooms section) or to send a message (while focusing the prompt section).
+* `c-q` to quit.
+* `Arrow Keys` to move around in the scrollable panes such as the chatrooms section and the messages one.
+
 
 ## How to Contribute
 
@@ -66,7 +77,7 @@ Contributions to the project are welcome! Follow these steps to contribute:
 
 - Handling errors and exceptions that could occur during the connection.
 - Handling user's disconnection from a chatroom making him connect back to the server.
-- Develop a better "terminal interface" making the application usable even without launching the GUI.
+- Enhancing the TUI making it more easily accessible.
 - Developing a user-friendly graphical user interface.
 - Optimizing the app and cleaning the code.
 

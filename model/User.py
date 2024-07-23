@@ -201,6 +201,6 @@ class User: #Client
 
     def disconnect(self):
         disconnect_message = Message(1, self.open_chat.id, self.details, DISCONNECT_MESSAGE)
-        disconnect_message.send(self.socket)
+        self.send_msg(disconnect_message)
 
 
